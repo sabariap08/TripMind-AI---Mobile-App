@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "TripMind AI",
+    "slug": "tripmind-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "tripmind",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B3D2E"
+    },
+    "android": {
+      "package": "ai.tripmind.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B3D2E"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "ios": {
+      "bundleIdentifier": "ai.tripmind.mobile",
+      "supportsTablet": true
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "TripMind AI uses the camera to scan your ticket QR code at the boarding gate.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "TripMind AI uses your location to fill in your trip's origin and to show how far you are from the boarding point."
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "TripMind AI uses Face ID to unlock your saved session."
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "http://10.68.29.33:5001/api/mobile"
+    }
+  }
+}

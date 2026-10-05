@@ -1,0 +1,26 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated JWT signing secret. Never commit this - it is a live credential,
+# and a per-process generated one invalidates every issued token on restart.
+.mobile_jwt_secret
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Virtualenvs
+.venv/
+venv/
+
+# Logs and OS noise
+*.log
+.DS_Store
+Thumbs.db

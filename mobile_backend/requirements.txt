@@ -1,0 +1,25 @@
+# TripMind AI mobile API
+#
+# Deliberately short. Every service, model and database driver the mobile API
+# uses comes from the existing web backend, which already pins them. This file
+# only adds what is genuinely new for the JWT layer, so there is one version of
+# Flask, one version of PyMongo and one resolved dependency tree for both
+# clients rather than two that can drift.
+#
+# The authoritative pins for everything shared live in:
+#     Website\backend\requirements.txt
+#
+# Run with that file installed first, then this one.
+
+# Bearer-token authentication. The web app signs cookies with its Flask
+# SECRET_KEY; the mobile app signs stateless tokens with a separate key.
+PyJWT>=2.8.0
+
+# Already in Website\backend\requirements.txt - listed here so this file is
+# runnable on its own in a fresh venv, and harmless when it is already present.
+Flask>=3.0.0
+flask-cors>=4.0.0
+pymongo>=4.6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+Werkzeug>=3.0.0
