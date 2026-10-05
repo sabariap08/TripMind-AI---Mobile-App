@@ -11,7 +11,7 @@
  * the screen says so at the top, because "there is no new event" is otherwise
  * indistinguishable from "nothing is wrong".
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshControl,
   SectionList,
@@ -26,6 +26,7 @@ import { trips as tripsApi } from '../api/endpoints';
 import { Badge, Button, Callout, Card, EmptyState, Skeleton } from '../components/ui';
 import { colors, radius, space, type } from '../theme';
 import { dateTime, longDate, relativeTime } from '../utils/format';
+import { watchTripEvents } from '../utils/notifications';
 import { describeError } from '../utils/errors';
 
 const SEVERITY = {
@@ -37,12 +38,16 @@ const SEVERITY = {
 export default function TripEventsScreen({ route, navigation }) {
   const { tripId } = route.params || {};
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
 
   const [trip, setTrip] = useState(null);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // The newest event id already notified about. A delay notification is only
+  // worth sending once; re-polling the timeline must not re-alert for events the
+  // user has already seen, or a flaky connection turns into a spam loop.
+  const notifiedRef = useRef(null);
 
   const load = useCallback(
     async ({ quiet = false } = {}) => {
@@ -67,6 +72,25 @@ export default function TripEventsScreen({ route, navigation }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Local alerts for anything the timeline has not shown yet.
+  //
+  // This is a poll, not a subscription, and the distinction matters: the mobile
+  // API is a request/response service with no push channel, so the app can only
+  // notice a delay while it is running and fetching this timeline. The helper
+  // is explicit about that so nothing here over-promises. A real push channel
+  // would mean a server-side token registry and an APNs/FCM send path, which
+  // does not exist in this project yet.
+  useEffect(() => {
+    if (!events.length || !trip) return undefined;
+    return watchTripEvents({
+      events,
+      trip,
+      userName: user?.name,
+      lastNotifiedId: notifiedRef.current,
+      onNotified: (id) => { notifiedRef.current = id; },
+    });
+  }, [events, trip, user?.name]);
 
   // Group by calendar day. A timeline spanning a delay and its resolution reads
   // far better as two short dated sections than as one flat list with dates

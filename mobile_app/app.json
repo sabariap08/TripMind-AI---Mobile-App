@@ -16,11 +16,16 @@
     "android": {
       "package": "ai.tripmind.mobile",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
         "backgroundColor": "#0B3D2E"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "ios": {
       "bundleIdentifier": "ai.tripmind.mobile",
@@ -47,6 +52,12 @@
         "expo-secure-store",
         {
           "faceIDPermission": "TripMind AI uses Face ID to unlock your saved session."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0B3D2E"
         }
       ]
     ],

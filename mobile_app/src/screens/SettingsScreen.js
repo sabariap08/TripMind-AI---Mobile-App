@@ -30,12 +30,16 @@ import {
   Button, Callout, Card, DataRow, Divider, Input, Row, SectionHeader, Toggle,
 } from '../components/ui';
 import { colors, space, type } from '../theme';
-import { dateTime } from '../utils/format';
+import { dateTime, relativeTime } from '../utils/format';
 import { describeError, errorLine } from '../utils/errors';
+import {
+  HONEST_SUMMARY, ensurePermission, isOptedOut, setOptedOut,
+} from '../utils/notifications';
+import { cacheSummary } from '../utils/cache';
 
 export default function SettingsScreen({ route }) {
   const insets = useSafeAreaInsets();
-  const { token, user } = useAuth();
+  const { token, user, cacheScope } = useAuth();
 
   const [baseUrl, setBaseUrlValue] = useState('');
   const [savedUrl, setSavedUrl] = useState('');
@@ -48,7 +52,10 @@ export default function SettingsScreen({ route }) {
   const [passwordError, setPasswordError] = useState(null);
   const [passwordDone, setPasswordDone] = useState(false);
 
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const [alertsOn, setAlertsOn] = useState(false);
+  const [alertsNote, setAlertsNote] = useState(null);
+  const [notificationPermission, setNotificationPermission] = useState('unknown');
+  const [cacheInfo, setCacheInfo] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +67,81 @@ export default function SettingsScreen({ route }) {
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Reflect the real permission state rather than assuming it. `denied` with
+  // canAskAgain false means the OS will not prompt again, so the note has to
+  // point at system settings instead of offering a button that does nothing.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [permission, optedOut] = await Promise.all([
+        ensurePermission(),
+        isOptedOut(),
+      ]);
+      if (cancelled) return;
+      setNotificationPermission(permission.unavailable ? 'unavailable' : permission.status);
+      setAlertsOn(permission.status === 'granted' && !optedOut);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    cacheSummary(cacheScope).then((info) => {
+      if (!cancelled) setCacheInfo(info);
+    });
+    return () => { cancelled = true; };
+  }, [cacheScope]);
+
+  const toggleAlerts = useCallback(async (next) => {
+    setAlertsNote(null);
+    if (!next) {
+      await setOptedOut(true);
+      setAlertsOn(false);
+      return;
+    }
+    const permission = await ensurePermission();
+    if (permission.status !== 'granted') {
+      setNotificationPermission(permission.unavailable ? 'unavailable' : permission.status);
+      setAlertsNote(
+        permission.unavailable
+          ? 'Notifications are not available on this build.'
+          : permission.canAskAgain
+            ? 'Permission was not granted, so alerts stay off.'
+            : 'Alerts are blocked for TripMind. Enable them in your phone’s Settings, then come back.',
+      );
+      return;
+    }
+    await setOptedOut(false);
+    setAlertsOn(true);
+  }, []);
+
+  // A demo with an unverifiable alert setting is not worth much, and a toggle
+  // that has never fired is indistinguishable from one that is broken. This
+  // proves the whole path - permission, channel, delivery - in one tap.
+  const testAlert = useCallback(async () => {
+    setAlertsNote(null);
+    const permission = await ensurePermission();
+    if (permission.status !== 'granted') {
+      setNotificationPermission(permission.unavailable ? 'unavailable' : permission.status);
+      setAlertsNote('Grant notification permission first.');
+      return;
+    }
+    if (await isOptedOut()) {
+      setAlertsNote('Alerts are switched off. Turn them on above.');
+      return;
+    }
+    const { notifyDelayDetected } = await import('../utils/notifications');
+    const sent = await notifyDelayDetected(
+      { id: 'test', origin: 'Mumbai', destination: 'Goa' },
+      { minutes: 25, reason: 'Test alert from TripMind settings' },
+    );
+    setAlertsNote(
+      sent
+        ? 'Test alert sent. It should appear within a few seconds.'
+        : 'Could not post the alert on this device.',
+    );
   }, []);
 
   const checkHealth = useCallback(async () => {
@@ -207,15 +289,39 @@ export default function SettingsScreen({ route }) {
           />
         </Card>
 
-        {/* ---------------------------------------------------- behaviour */}
-        <SectionHeader title="Display" />
+        {/* ------------------------------------------------------- alerts */}
+        <SectionHeader title="Alerts" />
         <Card>
           <Toggle
-            label="Reduce motion"
-            hint="Turns off card and sheet animations."
-            value={reduceMotion}
-            onChange={setReduceMotion}
+            label="Trip disruption alerts"
+            hint={HONEST_SUMMARY}
+            value={alertsOn}
+            onChange={toggleAlerts}
           />
+          <Button
+            label={alertsOn ? 'Send a test alert' : 'Enable alerts'}
+            onPress={testAlert}
+            variant="secondary"
+          />
+          {alertsNote ? <Text style={styles.aboutBody}>{alertsNote}</Text> : null}
+        </Card>
+
+        {/* -------------------------------------------------------- device */}
+        <SectionHeader title="This device" />
+        <Card>
+          <DataRow
+            label="Notifications"
+            value={notificationPermission === 'unknown' ? '—' : notificationPermission}
+          />
+          <DataRow
+            label="Offline cache"
+            value={cacheInfo ? `${cacheInfo.count} saved · ${relativeTime(cacheInfo.oldest)}` : 'empty'}
+          />
+          <Text style={styles.aboutBody}>
+            Alerts only arrive while TripMind is open. There is no background server push
+            yet, so a delay recorded while the app is closed will not notify you until you
+            next open the app.
+          </Text>
         </Card>
 
         {/* --------------------------------------------------------- about */}

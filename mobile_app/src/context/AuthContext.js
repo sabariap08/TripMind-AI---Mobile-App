@@ -10,8 +10,18 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import { auth as authApi } from '../api/endpoints';
 import { readToken, setUnauthorizedHandler } from '../api/client';
+import { clearUserCache } from '../utils/cache';
 
 const AuthContext = createContext(null);
+
+/**
+ * The stable identity used to namespace the offline cache.
+ *
+ * `id` is preferred because an email can be changed; the email is a fallback for
+ * a user object that somehow lacks one. Returns null when signed out, which makes
+ * the cache keys unguessable-by-accident rather than shared across accounts.
+ */
+const cacheScopeOf = (user) => (user ? String(user.id || user.email || '') : null);
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
@@ -24,10 +34,17 @@ export function AuthProvider({ children }) {
   useEffect(() => () => { alive.current = false; }, []);
 
   const signOutLocally = useCallback(async () => {
+    // Cached trips are the previous traveller's itinerary and their wallet
+    // balance. On a shared handset the next sign-in must not be able to read
+    // them, so the cache is scoped by user id and dropped here. This is also
+    // the one place the app knows a session is really over rather than merely
+    // failing to refresh, so it is the right hook.
+    const scope = cacheScopeOf(user);
     await authApi.signOut();
+    if (scope) await clearUserCache(scope);
     setToken(null);
     setUser(null);
-  }, []);
+  }, [user]);
 
   // The API client calls this when a refresh fails, so the whole app agrees the
   // session is over without the client reaching into context directly.
@@ -83,6 +100,10 @@ export function AuthProvider({ children }) {
       user,
       restoring,
       isSignedIn: !!token && !!user,
+      // Namespaces the offline cache. Screens pass this to `cachedFetch` rather
+      // than reaching for the user object, so they never have to think about
+      // which field is the stable identifier.
+      cacheScope: cacheScopeOf(user),
       signIn,
       register,
       signOut: signOutLocally,

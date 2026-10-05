@@ -115,7 +115,8 @@ def generate_plans(trip_id):
     because the planner returns whole plans, not tokens.
     """
     trip = gateway.accessible_trip(trip_id, current_user(), write=True)
-    result = gateway.generate_plans(trip)
+    data = require_body()
+    result = gateway.generate_plans(trip, clarifications=data.get("clarifications"))
     result.pop("itineraries", None)
     return jsonify(result)
 

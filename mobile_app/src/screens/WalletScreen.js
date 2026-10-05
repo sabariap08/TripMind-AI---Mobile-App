@@ -32,17 +32,19 @@ import {
 import { colors, radius, space, type } from '../theme';
 import { dateTime, money, relativeTime } from '../utils/format';
 import { describeError, errorLine } from '../utils/errors';
+import { cachedFetch, isStale, savedAtOf } from '../utils/cache';
 
 /** Quick top-up amounts. The custom field is there for everything else. */
 const PRESETS = [500, 1000, 2500, 5000];
 
 export default function WalletScreen() {
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { token, cacheScope } = useAuth();
 
   const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [staleAt, setStaleAt] = useState(null);
 
   const [depositOpen, setDepositOpen] = useState(false);
   const [amount, setAmount] = useState('');
@@ -53,8 +55,17 @@ export default function WalletScreen() {
     async ({ quiet = false } = {}) => {
       if (!quiet) setLoading(true);
       try {
-        const result = await walletApi.get(token);
+        // A balance the traveller already saw is useful offline; a wrong one is
+        // not, so a stale read is labelled rather than presented as current.
+        // Deposits bypass the cache - they must never appear to succeed when
+        // the request never left the device.
+        const result = await cachedFetch({
+          userId: cacheScope,
+          cacheName: 'wallet',
+          request: () => walletApi.get(token),
+        });
         setWallet(result?.wallet || null);
+        setStaleAt(isStale(result) ? savedAtOf(result) : null);
         setError(null);
       } catch (e) {
         setError(describeError(e));
@@ -62,7 +73,7 @@ export default function WalletScreen() {
         setLoading(false);
       }
     },
-    [token],
+    [token, cacheScope],
   );
 
   useEffect(() => {
@@ -116,6 +127,15 @@ export default function WalletScreen() {
           <RefreshControl refreshing={false} onRefresh={() => load({ quiet: true })} />
         }
       >
+        {staleAt ? (
+          <View style={styles.offlineBar}>
+            <Text style={styles.offlineText}>
+              Offline — balance as of {relativeTime(staleAt)}. Do not top up until
+              you are back online.
+            </Text>
+          </View>
+        ) : null}
+
         {/* ------------------------------------------------------ balance */}
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>TripMind wallet</Text>
@@ -285,6 +305,17 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.ink04 },
   content: { paddingHorizontal: space.lg, paddingTop: space.md },
   gap: { marginBottom: space.md },
+
+  offlineBar: {
+    backgroundColor: colors.warningBg,
+    borderRadius: radius.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.warning,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    marginBottom: space.md,
+  },
+  offlineText: { ...type.caption, color: colors.ink70, lineHeight: 16 },
 
   balanceCard: {
     backgroundColor: colors.brand800,

@@ -151,6 +151,7 @@ export function Input({
   editable = true,
   testID,
   right,
+  style,
 }) {
   return (
     <Field label={label} hint={hint} error={error} required={required}>
@@ -168,7 +169,12 @@ export function Input({
           multiline={multiline}
           editable={editable}
           accessibilityLabel={label}
-          style={[styles.input, multiline && styles.inputMultiline, right && styles.inputWithRight]}
+          style={[
+            styles.input,
+            multiline && styles.inputMultiline,
+            right && styles.inputWithRight,
+            style,
+          ]}
         />
         {right}
       </View>

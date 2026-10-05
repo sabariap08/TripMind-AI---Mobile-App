@@ -23,6 +23,7 @@ import RegisterScreen from '../screens/RegisterScreen';
 import PlanTripScreen from '../screens/PlanTripScreen';
 import TripsScreen from '../screens/TripsScreen';
 import TripDetailScreen from '../screens/TripDetailScreen';
+import ClarifyScreen from '../screens/ClarifyScreen';
 import ReplanScreen from '../screens/ReplanScreen';
 import BookingsScreen from '../screens/BookingsScreen';
 import TicketScreen from '../screens/TicketScreen';
@@ -112,6 +113,11 @@ export default function RootNavigator() {
   return (
     <RootStack.Navigator screenOptions={headerOptions}>
       <RootStack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
+      <RootStack.Screen
+        name="Clarify"
+        component={ClarifyScreen}
+        options={{ title: 'A few details first' }}
+      />
       <RootStack.Screen
         name="TripDetail"
         component={TripDetailScreen}

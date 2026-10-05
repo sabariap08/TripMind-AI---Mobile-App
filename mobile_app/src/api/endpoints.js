@@ -50,7 +50,8 @@ export const trips = {
   remove: (token, id) => api.del(`/trips/${id}`, { token }),
 
   clarify: (token, id) => api.clarify(`/trips/${id}/clarify`, { token }),
-  generate: (token, id) => api.generate(`/trips/${id}/generate`, { token }),
+  generate: (token, id, clarifications) =>
+    api.generate(`/trips/${id}/generate`, { token, body: { clarifications } }),
 
   itinerary: (token, id) => api.get(`/trips/${id}/itinerary`, { token }),
   selectItinerary: (token, id, itineraryId) =>

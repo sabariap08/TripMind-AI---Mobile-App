@@ -5,7 +5,7 @@
  * an active delay - pulled to the top. Everything else is a card, because a
  * list of trips is a list of decisions, not a document to read.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -25,22 +25,33 @@ import {
 import { colors, radius, space, type } from '../theme';
 import { money, nightsBetween, relativeTime, statusTone } from '../utils/format';
 import { describeError } from '../utils/errors';
+import { cachedFetch, isStale, savedAtOf } from '../utils/cache';
+import { notifyDelayDetected } from '../utils/notifications';
 
 export default function TripsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { token, cacheScope } = useAuth();
 
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [staleAt, setStaleAt] = useState(null);
 
   const load = useCallback(
     async ({ quiet = false } = {}) => {
       if (!quiet) setLoading(true);
       try {
-        const result = await tripsApi.list(token, 100);
+        // Falls back to the last successful list when the network is gone, so a
+        // traveller in a tunnel still sees their trips. The stale timestamp is
+        // kept and surfaced rather than hidden.
+        const result = await cachedFetch({
+          userId: cacheScope,
+          cacheName: 'trips',
+          request: () => tripsApi.list(token, 100),
+        });
         setTrips(result?.trips || []);
+        setStaleAt(isStale(result) ? savedAtOf(result) : null);
         setError(null);
       } catch (e) {
         setError(describeError(e));
@@ -49,7 +60,7 @@ export default function TripsScreen({ navigation }) {
         setRefreshing(false);
       }
     },
-    [token],
+    [token, cacheScope],
   );
 
   useEffect(() => {
@@ -75,6 +86,24 @@ export default function TripsScreen({ navigation }) {
     });
   }, [trips]);
 
+  // Announce a delay the first time this list sees one.
+  //
+  // Keyed on the trip's active-delay id rather than on the trip, so a trip whose
+  // delay is extended re-alerts (a new id is a genuinely new fact) while a
+  // plain re-render or focus refresh does not. Without that distinction this
+  // fires on every visit, which is how a notification gets dismissed unread.
+  const alertedDelays = useRef(new Set());
+  useEffect(() => {
+    for (const trip of trips) {
+      const delay = trip.activeDelay;
+      if (!delay) continue;
+      const key = String(delay.id || `${trip.id}:${delay.minutes || ''}`);
+      if (alertedDelays.current.has(key)) continue;
+      alertedDelays.current.add(key);
+      notifyDelayDetected(trip, delay);
+    }
+  }, [trips]);
+
   const onRefresh = () => {
     setRefreshing(true);
     load({ quiet: true });
@@ -86,6 +115,14 @@ export default function TripsScreen({ navigation }) {
         <Text style={styles.title}>Your trips</Text>
         {trips.length ? <Text style={styles.count}>{trips.length} total</Text> : null}
       </View>
+
+      {staleAt ? (
+        <View style={styles.offlineBar}>
+          <Text style={styles.offlineText}>
+            Offline — showing trips saved {relativeTime(staleAt)}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={styles.body}>
         {loading ? (
@@ -232,6 +269,15 @@ const styles = StyleSheet.create({
 
   skeletons: { padding: space.lg },
   skeletonBlock: { marginBottom: space.md },
+
+  // Full-width strip rather than an in-list banner: this is a statement about
+  // the whole screen, not about any one trip in it.
+  offlineBar: {
+    backgroundColor: colors.ink08,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+  },
+  offlineText: { ...type.caption, color: colors.ink70, fontWeight: '600' },
 
   alertHeader: { marginBottom: space.md },
   alert: {

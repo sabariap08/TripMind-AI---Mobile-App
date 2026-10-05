@@ -77,6 +77,7 @@ clients read the same database.
 | GET/PATCH/DELETE | `/trips/<id>` |
 | POST | `/trips/<id>/clarify`, `/generate` |
 | GET | `/trips/<id>/itinerary`, `/budget`, `/events`, `/token` |
+| POST | `/trips/<id>/itinerary/select` |
 | POST | `/trips/<id>/itinerary/select`, `/delay`, `/replan`, `/pay` |
 | DELETE | `/trips/<id>/delay` |
 | GET/POST | `/bookings` |
@@ -113,6 +114,22 @@ parsing prose:
 
 `retryable` is what lets the app distinguish "the AI is down, try again"
 (503) from "there is no inventory on this corridor" (200 with an empty plan).
+
+## What this API does not do
+
+There is **no push notification channel here**, and the app does not pretend
+otherwise. This is a request/response service: nothing runs when the app is
+closed, so it cannot tell a traveller their train is delayed while the phone is
+in their pocket.
+
+The client raises local notifications while it is open, and Settings says so in
+those words. Real push needs three things that do not exist yet:
+
+1. A device-token endpoint, so the app can POST its Expo push token and the
+   server can store it against the user.
+2. A send path in the delay handler, looking up the affected traveller's tokens
+   after `trip_service` records a delay.
+3. A receipt store, so a failed send is visible rather than assumed fine.
 
 ## Smoke test
 

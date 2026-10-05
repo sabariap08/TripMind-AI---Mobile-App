@@ -36,14 +36,15 @@ import {
 } from '../components/ui';
 import { colors, radius, space, type } from '../theme';
 import {
-  itineraryIcon, money, nightsBetween, statusTone, timeOnly,
+  itineraryIcon, money, nightsBetween, relativeTime, statusTone, timeOnly,
 } from '../utils/format';
 import { describeError, errorLine } from '../utils/errors';
+import { cachedFetch, savedAtOf } from '../utils/cache';
 
 export default function TripDetailScreen({ route, navigation }) {
   const { tripId, justCreated } = route.params || {};
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { token, cacheScope } = useAuth();
 
   const [trip, setTrip] = useState(null);
   const [itinerary, setItinerary] = useState(null);
@@ -55,6 +56,7 @@ export default function TripDetailScreen({ route, navigation }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [generationNote, setGenerationNote] = useState(null);
+  const [staleAt, setStaleAt] = useState(null);
 
   const load = useCallback(
     async ({ quiet = false } = {}) => {
@@ -64,9 +66,23 @@ export default function TripDetailScreen({ route, navigation }) {
         // Trip and itinerary are fetched together: the screen cannot render
         // meaningfully with one and not the other, and two sequential requests
         // would double the time to first paint.
+        //
+        // Both are cached per trip id. This is the screen that matters most
+        // offline - it is what a traveller opens when the train enters a tunnel
+        // - so it degrades to the last copy rather than to an error page.
         const [tripResult, itinResult] = await Promise.all([
-          tripsApi.get(token, tripId),
-          tripsApi.itinerary(token, tripId),
+          cachedFetch({
+            userId: cacheScope,
+            cacheName: 'trip',
+            cacheId: tripId,
+            request: () => tripsApi.get(token, tripId),
+          }),
+          cachedFetch({
+            userId: cacheScope,
+            cacheName: 'itinerary',
+            cacheId: tripId,
+            request: () => tripsApi.itinerary(token, tripId),
+          }),
         ]);
         setTrip(tripResult?.trip || null);
         setItinerary(itinResult?.itinerary || null);
@@ -74,13 +90,16 @@ export default function TripDetailScreen({ route, navigation }) {
         setAlternatives(
           (tripResult?.trip?.itineraries || []).filter((i) => i.status !== 'SUPERSEDED'),
         );
+        // Whichever half came from disk decides whether this is a stale view.
+        const saved = savedAtOf(tripResult) || savedAtOf(itinResult);
+        setStaleAt(saved || null);
       } catch (e) {
         setError(describeError(e));
       } finally {
         setLoading(false);
       }
     },
-    [token, tripId],
+    [token, tripId, cacheScope],
   );
 
   useEffect(() => {
@@ -96,12 +115,12 @@ export default function TripDetailScreen({ route, navigation }) {
       .catch(() => setBudget(null));
   }, [token, tripId, trip?.status]);
 
-  const generate = useCallback(async () => {
+  const generate = useCallback(async (clarifications) => {
     setGenerating(true);
     setError(null);
     setGenerationNote(null);
     try {
-      const result = await tripsApi.generate(token, tripId);
+      const result = await tripsApi.generate(token, tripId, clarifications);
 
       if (result?.selectedPlan) {
         setGenerationNote({
@@ -131,6 +150,37 @@ export default function TripDetailScreen({ route, navigation }) {
       setGenerating(false);
     }
   }, [token, tripId, load]);
+
+  // Ask the planner what it still needs before committing to an itinerary.
+  //
+  // A failure here is swallowed deliberately. Clarification improves a plan; it
+  // is not a gate on having one, so a traveller on a bad connection who cannot
+  // load the questions must still get an itinerary. Falling straight through to
+  // generate is the correct behaviour, not an error state to surface.
+  const clarifyThenGenerate = useCallback(async () => {
+    setGenerating(true);
+    setError(null);
+    setGenerationNote(null);
+
+    let questions = [];
+    try {
+      const result = await tripsApi.clarify(token, tripId);
+      questions = Array.isArray(result?.questions) ? result.questions : [];
+    } catch {
+      questions = [];
+    }
+
+    if (questions.length) {
+      setGenerating(false);
+      navigation.navigate('Clarify', {
+        tripId,
+        questions,
+        summary: trip ? `${trip.origin} to ${trip.destination}` : undefined,
+      });
+      return;
+    }
+    await generate(undefined);
+  }, [token, tripId, trip, navigation, generate]);
 
   const chooseAlternative = useCallback(
     async (itineraryId) => {
@@ -176,6 +226,15 @@ export default function TripDetailScreen({ route, navigation }) {
       ]}
       refreshControl={<RefreshControl refreshing={false} onRefresh={() => load({ quiet: true })} />}
     >
+      {staleAt ? (
+        <View style={styles.offlineBar}>
+          <Text style={styles.offlineText}>
+            Offline — saved copy from {relativeTime(staleAt)}. Times and availability
+            may have changed.
+          </Text>
+        </View>
+      ) : null}
+
       {/* ------------------------------------------------------------ header */}
       <Card style={styles.heroCard}>
         <Row style={styles.heroTop}>
@@ -253,7 +312,7 @@ export default function TripDetailScreen({ route, navigation }) {
           <Button
             label={generating ? 'Planning...' : 'Generate my itinerary'}
             testID="generate-plan"
-            onPress={generate}
+            onPress={clarifyThenGenerate}
             loading={generating}
             size="lg"
             style={styles.generateButton}
@@ -446,6 +505,19 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.ink04 },
   content: { paddingHorizontal: space.lg },
   centre: { flex: 1, backgroundColor: colors.ink04, justifyContent: 'center' },
+
+  // Inside the padded scroll content, so this is a bordered box rather than the
+  // full-bleed strip the list screen uses.
+  offlineBar: {
+    backgroundColor: colors.warningBg,
+    borderRadius: radius.sm,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.warning,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    marginBottom: space.md,
+  },
+  offlineText: { ...type.caption, color: colors.ink70, lineHeight: 16 },
 
   heroCard: { paddingVertical: space.lg },
   heroTop: { alignItems: 'flex-start', marginBottom: space.md },

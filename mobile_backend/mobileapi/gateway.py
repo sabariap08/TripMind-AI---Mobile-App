@@ -362,8 +362,50 @@ def _recommendation_text(plan):
     return "Plan ready - no transport booking recommended."
 
 
-def generate_plans(trip):
+def _clean_clarifications(raw):
+    """Normalise the clarify step's answers into the planner's expected shape.
+
+    `ai_plan_builder._build_prompt` formats each entry as "%s: %s", so an answer
+    must render as readable text. A native client sends checkbox questions as a
+    list and radio questions as a bare string, and the keys are whatever `id`
+    the question carried. Lists are joined into a comma-separated phrase rather
+    than str()'d, because "activity_types: ['nature', 'food']" in a prompt
+    reads as a programming artefact to the model.
+
+    Anything that is not a short string, or a list of short strings, is dropped
+    rather than rejected: these answers only ever make the plan more specific,
+    so a malformed one should degrade the prompt, never fail the request the
+    traveller has been staring at for a minute.
+    """
+    if not isinstance(raw, dict):
+        return None
+    out = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            continue
+        label = key.strip()[:60]
+        if not label:
+            continue
+        if isinstance(value, str):
+            text = value.strip()[:400]
+        elif isinstance(value, list):
+            parts = [str(v).strip()[:80] for v in value if isinstance(v, str)]
+            text = ", ".join(p for p in parts if p)[:400]
+        elif isinstance(value, bool) or isinstance(value, (int, float)):
+            text = str(value)[:40]
+        else:
+            continue
+        if text:
+            out[label] = text
+    return out or None
+
+
+def generate_plans(trip, clarifications=None):
     """Run the shared planner and persist its itineraries.
+
+    `clarifications` is the answer set from the clarify step, passed straight
+    through to `generate_travel_plans`. The web client sends the same body, so
+    both clients get an identical prompt for identical answers.
 
     Returns a JSON-safe result. Raises `AiUnavailableError` when the LLM could
     not be reached, and returns `selectedPlan: None` (HTTP 200) when the corridor
@@ -373,7 +415,8 @@ def generate_plans(trip):
     request_data = _planner_request(trip)
     db_data = gather_db_data(trip)
 
-    result = generate_travel_plans(request_data, db_data)
+    result = generate_travel_plans(request_data, db_data,
+                                   _clean_clarifications(clarifications))
     selected = result.get("selectedPlan")
     now = _now()
 
